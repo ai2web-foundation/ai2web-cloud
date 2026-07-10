@@ -1,0 +1,18 @@
+{
+  "name": "ai2web-directory-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:create": "wrangler d1 create ai2web-directory",
+    "db:init": "wrangler d1 execute ai2web-directory --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute ai2web-directory --local --file=./schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

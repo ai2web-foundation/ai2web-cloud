@@ -1,0 +1,13 @@
+{
+  "name": "ai2web-directory",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DIRECTORY",
+      "database_name": "ai2web-directory",
+      "database_id": "REPLACE_WITH_YOUR_D1_ID"
+    }
+  ]
+}

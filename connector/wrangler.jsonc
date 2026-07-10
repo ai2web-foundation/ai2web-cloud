@@ -1,0 +1,14 @@
+{
+  "name": "ai2web-connector",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "DIRECTORY_URL": "https://ai2web-directory.REPLACE.workers.dev"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "CONNECTOR_MCP", "class_name": "ConnectorMCP" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ConnectorMCP"] }]
+}

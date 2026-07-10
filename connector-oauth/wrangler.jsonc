@@ -1,0 +1,19 @@
+{
+  "name": "ai2web-connector-oauth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "DIRECTORY_URL": "https://ai2web-directory.REPLACE.workers.dev",
+    "CONNECTOR_ORIGIN": "https://ai2web-connector-oauth.REPLACE.workers.dev"
+  },
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "REPLACE_OAUTH_KV_ID" },
+    { "binding": "CONNECTOR_KV", "id": "REPLACE_CONNECTOR_KV_ID" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "CONNECTOR_MCP", "class_name": "ConnectorMCP" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ConnectorMCP"] }]
+}

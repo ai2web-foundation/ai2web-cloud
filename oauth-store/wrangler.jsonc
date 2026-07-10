@@ -1,0 +1,14 @@
+{
+  "name": "ai2web-oauth-store",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_YOUR_KV_ID" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "STORE_MCP", "class_name": "StoreMCP" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["StoreMCP"] }]
+}
