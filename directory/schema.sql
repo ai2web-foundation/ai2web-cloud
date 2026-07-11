@@ -14,16 +14,8 @@ CREATE TABLE IF NOT EXISTS sites (
 );
 CREATE INDEX IF NOT EXISTS idx_sites_type ON sites(type);
 
--- Seed with real sites so the connector has something to find.
--- ai2web.dev serves a live manifest at /.well-known/ai2w.
+-- Seed with ai2web.dev, which serves a live manifest at /.well-known/ai2w.
 INSERT OR IGNORE INTO sites (id, name, url, type, capabilities, manifest_url, version, created_at)
 VALUES ('ai2web', 'AI2Web', 'https://ai2web.dev', 'content',
         '["content","search"]',
         'https://ai2web.dev/.well-known/ai2w', '0.1', 0);
-
--- The demo store (deploy ai2web-cloud/demo-store to make this entry resolve).
-INSERT OR IGNORE INTO sites (id, name, url, type, capabilities, manifest_url, mcp_endpoint, version, created_at)
-VALUES ('example-store', 'Example Store', 'https://ai2web-demo-store.workers.dev', 'ecommerce',
-        '["content","commerce","support","search","actions","events"]',
-        'https://ai2web-demo-store.workers.dev/ai2w',
-        'https://ai2web-demo-store.workers.dev/ai2w/mcp', '0.1', 0);
