@@ -1,0 +1,16 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Wrangler local state / cache (contains account info, build artifacts)
+.wrangler/
+
+# Local secrets - NEVER commit these
+.dev.vars
+.env
+*.local
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db

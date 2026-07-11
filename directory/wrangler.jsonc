@@ -3,11 +3,14 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-01-01",
   "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "directory.ai2web.dev", "custom_domain": true }
+  ],
   "d1_databases": [
     {
       "binding": "DIRECTORY",
       "database_name": "ai2web-directory",
-      "database_id": "REPLACE_WITH_YOUR_D1_ID"
+      "database_id": "38fc7f54-6f04-4e2f-b3ee-016987c071b2"
     }
   ]
 }
