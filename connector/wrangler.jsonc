@@ -3,9 +3,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-01-01",
   "compatibility_flags": ["nodejs_compat"],
+  "alias": { "ai": "./ai-stub.mjs" },
   "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "connector.ai2web.dev", "custom_domain": true }
+  ],
   "vars": {
-    "DIRECTORY_URL": "https://ai2web-directory.REPLACE.workers.dev"
+    "DIRECTORY_URL": "https://directory.ai2web.dev"
   },
   "durable_objects": {
     "bindings": [{ "name": "CONNECTOR_MCP", "class_name": "ConnectorMCP" }]
