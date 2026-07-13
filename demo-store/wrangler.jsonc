@@ -3,6 +3,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-01-01",
   "compatibility_flags": ["nodejs_compat"],
+  "alias": { "ai": "./ai-stub.mjs" },
+  "routes": [{ "pattern": "store.ai2web.dev", "custom_domain": true }],
   "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [{ "name": "STORE_MCP", "class_name": "StoreMCP" }]

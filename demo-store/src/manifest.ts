@@ -5,7 +5,7 @@ import type { Action } from "./types.js";
 export const MANIFEST = {
   protocol: "ai2w",
   version: "0.1",
-  site: { name: "Example Store", url: "https://ai2web-demo-store.workers.dev", type: "ecommerce", description: "AI2Web demo store.", languages: ["en-GB"] },
+  site: { name: "Example Store", url: "https://store.ai2web.dev", type: "ecommerce", description: "AI2Web demo store.", languages: ["en-GB"] },
   identity: { legal_name: "Example Store Ltd", privacy_policy: "https://ai2web.dev/" },
   capabilities: {
     content: { enabled: true, endpoint: "/ai2w/content" },
@@ -60,7 +60,7 @@ export async function backend(actionId: string, input: Record<string, unknown>):
     case "check_stock": return { sku: input.sku, available: true, price: "20.00", currency: "GBP", delivery: "2-4 working days" };
     case "track_order": return { order_id: input.order_id, status: "in_transit", carrier: "DPD", eta: "tomorrow 12:00", last_event: "Out for delivery" };
     case "report_issue": return { ticket: "T-5521", order_id: input.order_id, received_evidence: Array.isArray(input.evidence) ? input.evidence.length : 0, status: "logged" };
-    case "start_return": return { return_id: "RMA-4410", order_id: input.order_id, label_url: "https://ai2web-demo-store.workers.dev/labels/RMA-4410.pdf", status: "return_started" };
+    case "start_return": return { return_id: "RMA-4410", order_id: input.order_id, label_url: "https://store.ai2web.dev/labels/RMA-4410.pdf", status: "return_started" };
     case "request_refund": return { refund_id: "R-9087", order_id: input.order_id, amount: "20.00", currency: "GBP", method: "original payment", audit_ref: "aud_01H8", status: "refunded" };
     case "check_return_status": return { order_id: input.order_id, return_id: "RMA-4410", status: "in_transit_to_warehouse" };
     default: return { ok: true };
