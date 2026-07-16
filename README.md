@@ -1,3 +1,12 @@
+<div align="center">
+  <a href="https://ai2web.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ai2web-foundation/.github/main/profile/ai2web-logo-white.svg">
+      <img alt="AI2Web" src="https://raw.githubusercontent.com/ai2web-foundation/.github/main/profile/ai2web-logo-black.svg" width="200">
+    </picture>
+  </a>
+</div>
+
 # AI2Web on Cloudflare
 
 Deployable Cloudflare Workers that make AI2Web work end to end with AI assistants.
