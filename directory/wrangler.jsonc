@@ -6,6 +6,8 @@
   "routes": [
     { "pattern": "directory.ai2web.dev", "custom_domain": true }
   ],
+  // Health cron: re-verify every listed site's live manifest every 6 hours.
+  "triggers": { "crons": ["0 */6 * * *"] },
   "d1_databases": [
     {
       "binding": "DIRECTORY",
