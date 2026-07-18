@@ -3,9 +3,12 @@
 // manifest data - it fetches the site's real /.well-known/ai2w server-side, validates it,
 // and requires the manifest origin to match the submitted URL before storing.
 
+import { validateAttestation, corroborate, trustScore, type Attestation, type CorroboratedSignal } from "./trust.js";
+
 interface Env {
   DIRECTORY: D1Database;
   REGISTER_TOKEN?: string; // optional secret; if set, /register also requires it
+  TRUST_ENABLED?: string;  // "true" enables the RFC-0017 attestation endpoints (design-stage, off by default)
 }
 
 const CORS: Record<string, string> = {
@@ -160,6 +163,45 @@ export default {
            health='healthy', version=excluded.version, last_checked=excluded.last_checked`
       ).bind(id, m.site.name, origin, m.site.type ?? "other", JSON.stringify(v.caps), `${base}/ai2w`, mcp, m.version, created, Date.now()).run();
       return json(201, { id, name: m.site.name, url: origin, type: m.site.type, capabilities: v.caps, verification: "verified" });
+    }
+
+    // RFC-0017 trust attestation (DESIGN STAGE) - only when explicitly enabled. Off by default so
+    // the capability is never "presented as available" before its §8 design review + legal sign-off.
+    if (env.TRUST_ENABLED === "true") {
+      if (request.method === "POST" && path === "/attest") {
+        const raw = await request.text();
+        if (raw.length > 2048) return json(413, { error: { code: "payload_too_large" } });
+        let a: any; try { a = JSON.parse(raw || "{}"); } catch { return json(400, { error: { code: "invalid_request", message: "invalid JSON" } }); }
+        a.ts = Date.now();
+        const v = validateAttestation(a);
+        if (!v.valid) return json(400, { error: { code: "invalid_attestation", details: v.errors } });
+        // The site_origin must be a listed, verified site (anti-spam / sybil-resistance start).
+        const listed: any = await env.DIRECTORY.prepare("SELECT 1 FROM sites WHERE id = ? AND verification = 'verified'").bind(a.site_origin).first();
+        if (!listed) return json(422, { error: { code: "site_not_verified", message: "attest only for verified, listed sites" } });
+        // Upsert this party's attestation (one per audit_ref+party).
+        await env.DIRECTORY.prepare(
+          `INSERT INTO attestations (audit_ref, site_origin, agent, outcome, rating, party, ts) VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(audit_ref, party) DO UPDATE SET site_origin=excluded.site_origin, agent=excluded.agent, outcome=excluded.outcome, rating=excluded.rating, ts=excluded.ts`
+        ).bind(a.audit_ref, a.site_origin, a.agent, a.outcome, a.rating ?? null, a.party, a.ts).run();
+        // Corroborated once the opposite party has also attested this audit_ref.
+        const rows = await env.DIRECTORY.prepare("SELECT * FROM attestations WHERE audit_ref = ?").bind(a.audit_ref).all();
+        const list = (rows.results ?? []) as unknown as Attestation[];
+        const other = list.find((x) => x.party !== a.party);
+        const corroborated = other ? !!corroborate(a as Attestation, other) : false;
+        return json(202, { status: corroborated ? "corroborated" : "pending", note: "network trust is design-stage (RFC-0017)" });
+      }
+      const trust = path.match(/^\/sites\/([^/]+)\/trust$/);
+      if (request.method === "GET" && trust) {
+        const origin = decodeURIComponent(trust[1]);
+        const rows = await env.DIRECTORY.prepare("SELECT * FROM attestations WHERE site_origin = ?").bind(origin).all();
+        const byRef = new Map<string, Attestation[]>();
+        for (const r of (rows.results ?? []) as unknown as Attestation[]) (byRef.get(r.audit_ref) ?? byRef.set(r.audit_ref, []).get(r.audit_ref)!).push(r);
+        const signals: CorroboratedSignal[] = [];
+        for (const pair of byRef.values()) {
+          if (pair.length >= 2) { const c = corroborate(pair[0], pair[1]); if (c) signals.push(c); }
+        }
+        return json(200, { site: origin, trust: trustScore(signals, Date.now()) });
+      }
     }
 
     if (path === "/") return json(200, { service: "AI2Web Discovery Network", endpoints: ["/sites", "/sites/:id", "POST /register"], note: "register verifies the live manifest server-side; submitted data is ignored" });

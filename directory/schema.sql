@@ -25,6 +25,22 @@ CREATE INDEX IF NOT EXISTS idx_register_log ON register_log(ip, at);
 -- Migration for existing deployments (safe to run once; ignore "duplicate column" errors):
 --   ALTER TABLE sites ADD COLUMN last_checked INTEGER;
 
+-- RFC-0017 trust attestations (DESIGN STAGE, disabled unless TRUST_ENABLED=true).
+-- Two-sided: a signal is trustworthy only when a matching 'site' and 'agent' row exist for the
+-- same audit_ref. Positive-only (no negative signals) pending legal review (RFC-0017 §8).
+CREATE TABLE IF NOT EXISTS attestations (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  audit_ref    TEXT NOT NULL,
+  site_origin  TEXT NOT NULL,
+  agent        TEXT NOT NULL,
+  outcome      TEXT NOT NULL,
+  rating       INTEGER,
+  party        TEXT NOT NULL,     -- 'site' | 'agent'
+  ts           INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attest_unique ON attestations(audit_ref, party);
+CREATE INDEX IF NOT EXISTS idx_attest_site ON attestations(site_origin);
+
 -- Seed with ai2web.dev, which serves a live manifest at /.well-known/ai2w.
 INSERT OR IGNORE INTO sites (id, name, url, type, capabilities, manifest_url, verification, version, created_at)
 VALUES ('https://ai2web.dev', 'AI2Web', 'https://ai2web.dev', 'content',
