@@ -25,7 +25,10 @@ const RATE_LIMIT = 12; // registrations per IP per window
 const RATE_WINDOW = 600_000; // 10 min
 
 // SSRF guard: only public https hosts may be fetched/stored. Blocks loopback, private,
-// link-local/metadata, CGNAT and alternative IP encodings.
+// link-local/metadata, CGNAT and alternative IP encodings. NOTE: this is a literal-hostname
+// check, not a resolved-IP check, so it is not by itself DNS-rebind safe - a host that resolves
+// public-then-internal could still be reached. Residual risk tracked; mitigate with a resolved-IP
+// re-check or an egress allowlist if the directory ever fetches beyond public manifests.
 export function isSafePublicHttps(raw: string): boolean {
   let u: URL;
   try { u = new URL(raw); } catch { return false; }
@@ -64,6 +67,10 @@ export function validateManifest(m: any): { valid: boolean; errors: string[]; ca
 }
 
 const originOf = (u: string) => { try { return new URL(u).origin; } catch { return null; } };
+
+// A site opts out of listing by declaring `"x-ai2w-directory": { "list": false }` in its manifest.
+// Because only the domain owner controls the served manifest, this is an ownership-proven opt-out.
+const optedOut = (m: any): boolean => !!(m && typeof m === "object" && m["x-ai2w-directory"] && m["x-ai2w-directory"].list === false);
 
 // Fetch the site's real manifest, server-side, with SSRF re-guard on every hop.
 export async function fetchManifest(origin: string): Promise<any | null> {
@@ -150,6 +157,12 @@ export default {
       const claimed = originOf(m.site.url);
       if (claimed !== origin) return json(422, { error: { code: "origin_mismatch", message: `manifest.site.url (${claimed}) does not match ${origin}` } });
 
+      // Ownership-proven opt-out: if the served manifest declares it, refuse to list (and delist).
+      if (optedOut(m)) {
+        await env.DIRECTORY.prepare("DELETE FROM sites WHERE id = ?").bind(origin).run();
+        return json(200, { status: "opted_out", message: "manifest declares x-ai2w-directory.list = false; not listed" });
+      }
+
       const id = origin;
       const base = origin;
       const mcp = m.transports?.mcp?.enabled && m.transports.mcp.endpoint ? `${base}${m.transports.mcp.endpoint}` : null;
@@ -163,6 +176,21 @@ export default {
            health='healthy', version=excluded.version, last_checked=excluded.last_checked`
       ).bind(id, m.site.name, origin, m.site.type ?? "other", JSON.stringify(v.caps), `${base}/ai2w`, mcp, m.version, created, Date.now()).run();
       return json(201, { id, name: m.site.name, url: origin, type: m.site.type, capabilities: v.caps, verification: "verified" });
+    }
+
+    // POST /unregister { url } -- ownership-proven removal. Delists only if the live manifest opts out
+    // (x-ai2w-directory.list = false) or is gone/invalid, so a third party cannot delist a healthy site.
+    if (request.method === "POST" && path === "/unregister") {
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      if (!(await rateOk(env, ip))) return json(429, { error: { code: "rate_limited" } });
+      let body: any; try { body = JSON.parse((await request.text()).slice(0, 4096) || "{}"); } catch { return json(400, { error: { code: "invalid_request", message: "invalid JSON" } }); }
+      const origin = originOf(body.url ?? "");
+      if (!origin || !isSafePublicHttps(origin)) return json(400, { error: { code: "invalid_request", message: "url must be a public https origin" } });
+      const m = await fetchManifest(origin);
+      const removable = !m || !validateManifest(m).valid || optedOut(m) || originOf(m.site?.url) !== origin;
+      if (!removable) return json(422, { error: { code: "still_listed", message: "the site still serves a valid manifest for this origin; to delist, set x-ai2w-directory.list = false in it first" } });
+      await env.DIRECTORY.prepare("DELETE FROM sites WHERE id = ?").bind(origin).run();
+      return json(200, { status: "removed", url: origin });
     }
 
     // RFC-0017 trust attestation (DESIGN STAGE) - only when explicitly enabled. Off by default so
@@ -204,20 +232,26 @@ export default {
       }
     }
 
-    if (path === "/") return json(200, { service: "AI2Web Discovery Network", endpoints: ["/sites", "/sites/:id", "POST /register"], note: "register verifies the live manifest server-side; submitted data is ignored" });
+    if (path === "/") return json(200, { service: "AI2Web Discovery Network", endpoints: ["/sites", "/sites/:id", "POST /register", "POST /unregister"], note: "register verifies the live manifest server-side; submitted data is ignored" });
     return json(404, { error: { code: "not_found" } });
   },
 
-  // Health cron: re-fetch each site's manifest and update health; demote if it disappears.
+  // Health cron: re-verify each site, delist opt-outs, demote unreachable ones, and prune the log.
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const rows = await env.DIRECTORY.prepare("SELECT id, url FROM sites LIMIT 200").all();
       for (const r of (rows.results ?? []) as any[]) {
         const m = await fetchManifest(String(r.url).replace(/\/+$/, ""));
+        if (optedOut(m)) { // owner opted out since listing -> remove
+          await env.DIRECTORY.prepare("DELETE FROM sites WHERE id = ?").bind(r.id).run();
+          continue;
+        }
         const healthy = m && validateManifest(m).valid && originOf(m.site?.url) === originOf(r.url);
         await env.DIRECTORY.prepare("UPDATE sites SET health = ?, verification = ?, last_checked = ? WHERE id = ?")
           .bind(healthy ? "healthy" : "unreachable", healthy ? "verified" : "unverified", Date.now(), r.id).run();
       }
+      // Prune old rate-limit rows so register_log cannot grow unbounded.
+      await env.DIRECTORY.prepare("DELETE FROM register_log WHERE at < ?").bind(Date.now() - 86400_000).run();
     })());
   },
 };
