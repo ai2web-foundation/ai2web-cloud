@@ -17,19 +17,64 @@ type State = Record<string, never>;
  * see DEPLOY.md; the demo store needs no auth so the full flow works without it.
  */
 export class ConnectorMCP extends McpAgent<Env, State, {}> {
-  server = new McpServer({ name: "ai2web-connector", version: "0.1.0" });
+  server = new McpServer({ name: "ai2web-connector", version: "0.2.0" });
   initialState: State = {};
 
   async init() {
     const dir = this.env.DIRECTORY_URL.replace(/\/+$/, "");
 
+    // --- ChatGPT-compatible retrieval pair. ChatGPT's connectors / Deep Research only invoke tools
+    // named exactly `search` and `fetch` with these I/O shapes, so without them ChatGPT sees no
+    // usable tools and pulls nothing. They wrap the same Discovery Network as find_sites/describe_site. ---
+    this.server.registerTool(
+      "search",
+      { description: "Search the AI2Web Discovery Network for AI-ready websites (by keyword, capability or category). Returns matching sites; pass a result id to `fetch` for full details.", inputSchema: { query: z.string() } },
+      async ({ query }: { query: string }) => {
+        const res = await fetch(`${dir}/sites?q=${encodeURIComponent(query)}`);
+        const data: any = await res.json().catch(() => ({ sites: [] }));
+        const results = (data.sites ?? []).map((s: any) => ({
+          id: s.url,
+          title: s.name,
+          url: s.url,
+          text: `${s.category ?? s.type ?? "site"} · capabilities: ${(s.capabilities ?? []).join(", ") || "none"}${s.mcp_endpoint ? " · MCP" : ""}`,
+        }));
+        return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
+      },
+    );
+
+    this.server.registerTool(
+      "fetch",
+      { description: "Fetch full AI2Web details for a site id (its URL) returned by `search`: what it is, its capabilities, and the actions it exposes.", inputSchema: { id: z.string() } },
+      async ({ id }: { id: string }) => {
+        const manifest = await discover(id);
+        const caps = Object.keys(manifest.capabilities ?? {});
+        const actions = (manifest.actions ?? []).map((a: any) => ({ id: a.id ?? a.name, description: a.description, requires_approval: a.requires_user_approval || a.risk === "high" }));
+        const lines = [
+          `${manifest.site?.name ?? id} (${manifest.site?.type ?? "site"})`,
+          manifest.site?.description ? `\n${manifest.site.description}` : "",
+          `\nCapabilities: ${caps.join(", ") || "none"}`,
+          actions.length ? `\nActions:\n${actions.map((a: any) => `  - ${a.id}${a.requires_approval ? " [needs approval]" : ""}: ${a.description ?? ""}`).join("\n")}` : "",
+        ].filter(Boolean).join("");
+        return { content: [{ type: "text", text: JSON.stringify({ id, title: manifest.site?.name ?? id, text: lines, url: manifest.site?.url ?? id, metadata: { type: manifest.site?.type, capabilities: caps } }) }] };
+      },
+    );
+
     this.server.registerTool(
       "find_sites",
-      { description: "Find AI-ready (AI2Web) websites by capability, type or free text.", inputSchema: { capability: z.string().optional(), type: z.string().optional(), q: z.string().optional() } },
+      { description: "Find AI-ready (AI2Web) websites by capability, category, type or free text.", inputSchema: { capability: z.string().optional(), category: z.string().optional(), type: z.string().optional(), q: z.string().optional() } },
       async (args: Record<string, unknown>) => {
         const p = new URLSearchParams();
         for (const [k, v] of Object.entries(args)) if (v) p.set(k, String(v));
         const res = await fetch(`${dir}/sites?${p.toString()}`);
+        return { content: [{ type: "text", text: await res.text() }] };
+      },
+    );
+
+    this.server.registerTool(
+      "list_categories",
+      { description: "List the categories of sites available in the AI2Web Discovery Network, with a count for each.", inputSchema: {} },
+      async () => {
+        const res = await fetch(`${dir}/categories`);
         return { content: [{ type: "text", text: await res.text() }] };
       },
     );

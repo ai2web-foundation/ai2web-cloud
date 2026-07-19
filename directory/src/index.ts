@@ -72,6 +72,26 @@ const originOf = (u: string) => { try { return new URL(u).origin; } catch { retu
 // Because only the domain owner controls the served manifest, this is an ownership-proven opt-out.
 const optedOut = (m: any): boolean => !!(m && typeof m === "object" && m["x-ai2w-directory"] && m["x-ai2w-directory"].list === false);
 
+// Roll a site's free-form `site.type` (the spec leaves it open) up into a small, browsable
+// category taxonomy so agents and UIs can filter the network. Unknown types fall to "other".
+export const CATEGORIES = ["ecommerce", "booking", "travel", "publisher", "content", "saas", "finance", "directory", "community", "other"] as const;
+const CATEGORY_ALIASES: Record<string, string> = {
+  shop: "ecommerce", store: "ecommerce", retail: "ecommerce", commerce: "ecommerce", ecommerce: "ecommerce", marketplace: "directory",
+  booking: "booking", reservation: "booking", reservations: "booking", appointments: "booking", hospitality: "booking", restaurant: "booking",
+  travel: "travel", flights: "travel", hotel: "travel", hotels: "travel", tourism: "travel",
+  news: "publisher", media: "publisher", publisher: "publisher", blog: "publisher", magazine: "publisher", press: "publisher",
+  content: "content", docs: "content", documentation: "content", portfolio: "content", personal: "content", education: "content",
+  saas: "saas", software: "saas", app: "saas", platform: "saas", tool: "saas", api: "saas",
+  finance: "finance", banking: "finance", fintech: "finance", insurance: "finance",
+  directory: "directory", registry: "directory",
+  community: "community", forum: "community", social: "community",
+};
+export function categorize(type?: string): string {
+  const t = (type ?? "").toLowerCase().trim();
+  if (!t) return "other";
+  return CATEGORY_ALIASES[t] ?? ((CATEGORIES as readonly string[]).includes(t) ? t : "other");
+}
+
 // Fetch the site's real manifest, server-side, with SSRF re-guard on every hop.
 export async function fetchManifest(origin: string): Promise<any | null> {
   const anchor = `${origin}/.well-known/ai2w`;
@@ -116,17 +136,31 @@ export default {
       const binds: unknown[] = [];
       if (p.get("capability")) { clauses.push("capabilities LIKE ?"); binds.push(`%"${p.get("capability")}"%`); }
       if (p.get("type")) { clauses.push("type = ?"); binds.push(p.get("type")); }
-      if (p.get("q")) { clauses.push("(lower(name) LIKE ? OR lower(type) LIKE ?)"); const q = `%${p.get("q")!.toLowerCase()}%`; binds.push(q, q); }
+      if (p.get("category")) { clauses.push("COALESCE(category,'other') = ?"); binds.push(categorize(p.get("category")!)); }
+      if (p.get("q")) { clauses.push("(lower(name) LIKE ? OR lower(type) LIKE ? OR lower(COALESCE(category,'')) LIKE ?)"); const q = `%${p.get("q")!.toLowerCase()}%`; binds.push(q, q, q); }
       if (p.get("verified") === "true") clauses.push("verification = 'verified'");
       const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-      const rows = await env.DIRECTORY.prepare(`SELECT id,name,url,type,capabilities,manifest_url,mcp_endpoint,verification,health,version FROM sites${where} ORDER BY (verification='verified') DESC, name LIMIT 50`).bind(...binds).all();
-      return json(200, { sites: (rows.results ?? []).map((r: any) => ({ ...r, capabilities: safeParse(r.capabilities) })) });
+      const rows = await env.DIRECTORY.prepare(`SELECT id,name,url,type,category,capabilities,manifest_url,mcp_endpoint,verification,health,version FROM sites${where} ORDER BY (verification='verified') DESC, name LIMIT 50`).bind(...binds).all();
+      return json(200, { sites: (rows.results ?? []).map((r: any) => ({ ...r, category: r.category ?? categorize(r.type), capabilities: safeParse(r.capabilities) })) });
+    }
+
+    // Browse the network by category: the canonical taxonomy with live counts (verified sites only).
+    if (request.method === "GET" && path === "/categories") {
+      const rows = await env.DIRECTORY.prepare(
+        "SELECT COALESCE(category,'other') AS category, COUNT(*) AS count FROM sites WHERE verification = 'verified' GROUP BY COALESCE(category,'other')"
+      ).all();
+      const counts = new Map<string, number>();
+      for (const r of (rows.results ?? []) as any[]) counts.set(String(r.category), Number(r.count));
+      const categories = (CATEGORIES as readonly string[]).map((c) => ({ category: c, count: counts.get(c) ?? 0 }))
+        .filter((c) => c.count > 0)
+        .sort((a, b) => b.count - a.count);
+      return json(200, { categories });
     }
 
     const one = path.match(/^\/sites\/([\w.-]+)$/);
     if (request.method === "GET" && one) {
-      const r: any = await env.DIRECTORY.prepare("SELECT id,name,url,type,capabilities,manifest_url,mcp_endpoint,verification,health,version FROM sites WHERE id = ?").bind(one[1]).first();
-      return r ? json(200, { ...r, capabilities: safeParse(r.capabilities) }) : json(404, { error: { code: "not_found" } });
+      const r: any = await env.DIRECTORY.prepare("SELECT id,name,url,type,category,capabilities,manifest_url,mcp_endpoint,verification,health,version FROM sites WHERE id = ?").bind(one[1]).first();
+      return r ? json(200, { ...r, category: r.category ?? categorize(r.type), capabilities: safeParse(r.capabilities) }) : json(404, { error: { code: "not_found" } });
     }
 
     // POST /register  { url }  -- the manifest is fetched + verified server-side, never taken from the body.
@@ -168,14 +202,15 @@ export default {
       const mcp = m.transports?.mcp?.enabled && m.transports.mcp.endpoint ? `${base}${m.transports.mcp.endpoint}` : null;
       const existed: any = await env.DIRECTORY.prepare("SELECT created_at FROM sites WHERE id = ?").bind(id).first();
       const created = existed?.created_at ?? Date.now();
+      const category = categorize(m.site.type);
       await env.DIRECTORY.prepare(
-        `INSERT INTO sites (id,name,url,type,capabilities,manifest_url,mcp_endpoint,verification,health,version,created_at,last_checked)
-         VALUES (?,?,?,?,?,?,?, 'verified', 'healthy', ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, capabilities=excluded.capabilities,
+        `INSERT INTO sites (id,name,url,type,category,capabilities,manifest_url,mcp_endpoint,verification,health,version,created_at,last_checked)
+         VALUES (?,?,?,?,?,?,?,?, 'verified', 'healthy', ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, category=excluded.category, capabilities=excluded.capabilities,
            manifest_url=excluded.manifest_url, mcp_endpoint=excluded.mcp_endpoint, verification='verified',
            health='healthy', version=excluded.version, last_checked=excluded.last_checked`
-      ).bind(id, m.site.name, origin, m.site.type ?? "other", JSON.stringify(v.caps), `${base}/ai2w`, mcp, m.version, created, Date.now()).run();
-      return json(201, { id, name: m.site.name, url: origin, type: m.site.type, capabilities: v.caps, verification: "verified" });
+      ).bind(id, m.site.name, origin, m.site.type ?? "other", category, JSON.stringify(v.caps), `${base}/ai2w`, mcp, m.version, created, Date.now()).run();
+      return json(201, { id, name: m.site.name, url: origin, type: m.site.type, category, capabilities: v.caps, verification: "verified" });
     }
 
     // POST /unregister { url } -- ownership-proven removal. Delists only if the live manifest opts out
@@ -232,7 +267,7 @@ export default {
       }
     }
 
-    if (path === "/") return json(200, { service: "AI2Web Discovery Network", endpoints: ["/sites", "/sites/:id", "POST /register", "POST /unregister"], note: "register verifies the live manifest server-side; submitted data is ignored" });
+    if (path === "/") return json(200, { service: "AI2Web Discovery Network", endpoints: ["/sites", "/sites/:id", "/categories", "POST /register", "POST /unregister"], note: "register verifies the live manifest server-side; submitted data is ignored" });
     return json(404, { error: { code: "not_found" } });
   },
 
@@ -247,8 +282,8 @@ export default {
           continue;
         }
         const healthy = m && validateManifest(m).valid && originOf(m.site?.url) === originOf(r.url);
-        await env.DIRECTORY.prepare("UPDATE sites SET health = ?, verification = ?, last_checked = ? WHERE id = ?")
-          .bind(healthy ? "healthy" : "unreachable", healthy ? "verified" : "unverified", Date.now(), r.id).run();
+        await env.DIRECTORY.prepare("UPDATE sites SET health = ?, verification = ?, category = COALESCE(?, category), last_checked = ? WHERE id = ?")
+          .bind(healthy ? "healthy" : "unreachable", healthy ? "verified" : "unverified", m ? categorize(m.site?.type) : null, Date.now(), r.id).run();
       }
       // Prune old rate-limit rows so register_log cannot grow unbounded.
       await env.DIRECTORY.prepare("DELETE FROM register_log WHERE at < ?").bind(Date.now() - 86400_000).run();

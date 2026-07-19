@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS sites (
   id            TEXT PRIMARY KEY,     -- the site origin, e.g. https://example.com
   name          TEXT NOT NULL,
   url           TEXT NOT NULL,
-  type          TEXT,
+  type          TEXT,               -- free-form site.type from the manifest
+  category      TEXT,               -- normalised, browsable category (see categorize() in index.ts)
   capabilities  TEXT,               -- JSON array of enabled capability names
   manifest_url  TEXT,
   mcp_endpoint  TEXT,
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS sites (
   last_checked  INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sites_type ON sites(type);
+CREATE INDEX IF NOT EXISTS idx_sites_category ON sites(category);
 
 -- Per-IP register rate-limit log (rows older than the window are ignored; prune periodically).
 CREATE TABLE IF NOT EXISTS register_log (
@@ -24,6 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_register_log ON register_log(ip, at);
 
 -- Migration for existing deployments (safe to run once; ignore "duplicate column" errors):
 --   ALTER TABLE sites ADD COLUMN last_checked INTEGER;
+--   ALTER TABLE sites ADD COLUMN category TEXT;
 
 -- RFC-0017 trust attestations (DESIGN STAGE, disabled unless TRUST_ENABLED=true).
 -- Two-sided: a signal is trustworthy only when a matching 'site' and 'agent' row exist for the
@@ -42,7 +45,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_attest_unique ON attestations(audit_ref, p
 CREATE INDEX IF NOT EXISTS idx_attest_site ON attestations(site_origin);
 
 -- Seed with ai2web.dev, which serves a live manifest at /.well-known/ai2w.
-INSERT OR IGNORE INTO sites (id, name, url, type, capabilities, manifest_url, verification, version, created_at)
-VALUES ('https://ai2web.dev', 'AI2Web', 'https://ai2web.dev', 'content',
+INSERT OR IGNORE INTO sites (id, name, url, type, category, capabilities, manifest_url, verification, version, created_at)
+VALUES ('https://ai2web.dev', 'AI2Web', 'https://ai2web.dev', 'content', 'content',
         '["content","search"]',
         'https://ai2web.dev/.well-known/ai2w', 'verified', '0.2', 0);
