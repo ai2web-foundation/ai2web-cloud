@@ -9,6 +9,8 @@
 
 # AI2Web on Cloudflare
 
+[![AI2Web on Launchpadly - Product of the Week (Gold)](https://launchpadly.co/embed/badges/startup/ai2web.svg?variant=product-week-gold)](https://launchpadly.co/startup/ai2web?ref=badge)
+
 Deployable Cloudflare Workers that make AI2Web work end to end with AI assistants.
 
 | Worker | What it is | Add to an assistant? |
